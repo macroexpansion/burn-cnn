@@ -2,11 +2,14 @@ use burn::{
     autodiff::ADBackendDecorator,
     backend::{wgpu::AutoGraphicsApi, WgpuBackend},
     config::Config,
-    data::{dataloader::DataLoaderBuilder, dataset::source::huggingface::MNISTDataset},
+    data::{
+        dataloader::{batcher::Batcher, DataLoaderBuilder},
+        dataset::source::huggingface::{MNISTDataset, MNISTItem},
+    },
     module::Module,
     optim::AdamConfig,
-    record::CompactRecorder,
-    tensor::backend::ADBackend,
+    record::{CompactRecorder, Recorder},
+    tensor::backend::{ADBackend, Backend},
     train::{
         metric::{AccuracyMetric, LossMetric},
         LearnerBuilder,
@@ -74,6 +77,24 @@ pub fn train<B: ADBackend>(artifact_dir: &str, config: TrainingConfig, device: B
     model_trained
         .save_file(format!("{artifact_dir}/model"), &CompactRecorder::new())
         .expect("Failed to save trained model");
+}
+
+pub fn infer<B: Backend>(artifact_dir: &str, device: B::Device, item: MNISTItem) {
+    let config =
+        TrainingConfig::load(format!("{artifact_dir}/config.json")).expect("A config exists");
+    let record = CompactRecorder::new()
+        .load(format!("{artifact_dir}/model").into())
+        .expect("Failed to load trained model");
+
+    let model = config.model.init_with::<B>(record).to_device(&device);
+
+    let label = item.label;
+    let batcher = MNISTBatcher::new(device);
+    let batch = batcher.batch(vec![item]);
+    let output = model.forward(batch.images);
+    let predicted = output.argmax(1).flatten::<1>(0, 1).into_scalar();
+
+    println!("Predicted {} Expected {}", predicted, label);
 }
 
 fn main() {
