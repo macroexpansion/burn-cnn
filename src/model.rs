@@ -3,11 +3,18 @@ use burn::{
     module::Module,
     nn::{
         conv::{Conv2d, Conv2dConfig},
+        loss::CrossEntropyLoss,
         pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig},
         Dropout, DropoutConfig, Linear, LinearConfig, ReLU,
     },
-    tensor::{backend::Backend, Tensor},
+    tensor::{
+        backend::{ADBackend, Backend},
+        Int, Tensor,
+    },
+    train::{ClassificationOutput, TrainOutput, TrainStep, ValidStep},
 };
+
+use crate::data::MNISTBatch;
 
 #[derive(Module, Debug)]
 pub struct Model<B: Backend> {
@@ -43,6 +50,31 @@ impl<B: Backend> Model<B> {
         let x = self.activation.forward(x);
 
         self.linear2.forward(x) // [batch_size, num_classes]
+    }
+
+    pub fn forward_classification(
+        &self,
+        images: Tensor<B, 3>,
+        targets: Tensor<B, 1, Int>,
+    ) -> ClassificationOutput<B> {
+        let output = self.forward(images);
+        let loss = CrossEntropyLoss::new(None).forward(output.clone(), targets.clone());
+
+        ClassificationOutput::new(loss, output, targets)
+    }
+}
+
+impl<B: ADBackend> TrainStep<MNISTBatch<B>, ClassificationOutput<B>> for Model<B> {
+    fn step(&self, batch: MNISTBatch<B>) -> TrainOutput<ClassificationOutput<B>> {
+        let item = self.forward_classification(batch.images, batch.targets);
+
+        TrainOutput::new(self, item.loss.backward(), item)
+    }
+}
+
+impl<B: Backend> ValidStep<MNISTBatch<B>, ClassificationOutput<B>> for Model<B> {
+    fn step(&self, batch: MNISTBatch<B>) -> ClassificationOutput<B> {
+        self.forward_classification(batch.images, batch.targets)
     }
 }
 
