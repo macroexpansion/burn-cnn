@@ -103,7 +103,7 @@ fn main() {
 
     let device = burn_wgpu::WgpuDevice::default();
     train::<MyAutodiffBackend>(
-        "/tmp/guide",
+        "./train",
         TrainingConfig::new(ModelConfig::new(10, 512), AdamConfig::new()),
         device,
     );
